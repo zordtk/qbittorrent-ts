@@ -69,7 +69,7 @@ export class Client {
 	public async addTorrentByURL(url: string|string[]): Promise<boolean> {
 		const formData = new FormData();
 		formData.append('urls', (Array.isArray(url) ? url.join('\n') : url));
-		if( await this.sendRequestFormData('/torrents/add', formData) === 'Ok.' )
+		if( await this.sendRequest('/torrents/add', formData) === 'Ok.' )
 			return true;
 		else
 			return false;
@@ -93,11 +93,11 @@ export class Client {
 		return JSON.parse(await this.sendRequest('/torrents/info', map)) as Torrent[];
 	}
 
-	private sendRequest(path: string, data: Map<string, RequestData> = new Map()): Promise<string> {
+	private sendRequest(path: string, data: Map<string, RequestData>|FormData = new Map()): Promise<string> {
 		return new Promise<string>((resolve, reject) => {
-			const encodedData 	= this.dictToUrlEncoded(data);
+			let encodedData = '';
 			const urlOpts 		= new URL(this.mClientOpts.uri);
-			let request: http.ClientRequestArgs = {
+			let requestOpts: http.RequestOptions = {
 				host: urlOpts.hostname,
 				protocol: urlOpts.protocol,
 				port: urlOpts.port,
@@ -106,14 +106,24 @@ export class Client {
 				headers: {
 					Referer: urlOpts.origin,
 					Origin: urlOpts.origin,
-					'Content-Type': 'application/x-www-form-urlencoded',
-					'Content-Length': encodedData.length,
 					Cookie: this.mCookie
 				}
-			}
+			};
 
-			if( urlOpts.protocol === 'http:' ) {
-				const client = new http.ClientRequest(request, (response => {
+			if( !(data instanceof FormData) && requestOpts.headers ) {
+				encodedData 	= this.dictToUrlEncoded(data);
+
+				requestOpts.headers['Content-Type'] 	= 'application/x-www-form-urlencoded';
+				requestOpts.headers['Content-Length'] 	= encodedData.length;
+			} else if( data instanceof FormData && requestOpts.headers ) {
+				requestOpts.headers['Content-Type'] 	= data.getHeaders()['content-type'];
+				requestOpts.headers['Content-Length'] 	= data.getLengthSync();
+			}
+			
+			const protocolObj = {'http:': http.request, 'https:': https.request};
+			
+			if( urlOpts.protocol === 'http:' || urlOpts.protocol === 'https:') {
+				const client = protocolObj[urlOpts.protocol](requestOpts, response => {
 					let data: string[] = [];
 					response.on('data', (chunk: string) => {
 						data.push(chunk.toString());
@@ -128,51 +138,9 @@ export class Client {
 							reject(new Error('HTTP Response: ' + response.statusCode));
 						}
 					});
-				}));
+				});
 
-				client.write(encodedData);
-				client.end();
-			}
-		});
-	}
-
-	private sendRequestFormData(path: string, data: FormData): Promise<string> {
-		return new Promise<string>(async (resolve, reject) => {
-			const urlOpts = new URL(this.mClientOpts.uri);
-			let request: http.ClientRequestArgs = {
-				host: urlOpts.hostname,
-				protocol: urlOpts.protocol,
-				port: urlOpts.port,
-				path: `${API_ENDPOINT}${path}`,
-				method: 'POST',
-				headers: {
-					Referer: urlOpts.origin,
-					Origin: urlOpts.origin,
-					'Content-Type': data.getHeaders()['content-type'],
-					'Content-Length': data.getLengthSync(),
-					Cookie: this.mCookie
-				}
-			}
-
-			if( urlOpts.protocol === 'http:' ) {
-				const client = new http.ClientRequest(request, (response => {
-					let data: string[] = [];
-					response.on('data', (chunk: string) => {
-						data.push(chunk.toString());
-					});
-
-					response.on('end', () => {
-						if( response.statusCode === 200 ) {
-							if( response.headers['set-cookie'] )
-								this.mCookie = response.headers['set-cookie'][0];
-							resolve(data.join());
-						} else {
-							reject(new Error('HTTP Response: ' + response.statusCode));
-						}
-					});
-				}));
-
-				client.write(data.getBuffer());
+				client.write((data instanceof FormData ? data.getBuffer() : encodedData));
 				client.end();
 			}
 		});
