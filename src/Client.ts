@@ -10,13 +10,11 @@ const API_ENDPOINT = '/api/v2';
 type RequestData = number | string | string[] | any;
 
 export class Client {
-	// mClient: http.ClientRequest;
 	mClientOpts: ConnectOptions;
 	mCookie = '';
 
 	private constructor(opts: ConnectOptions) {
 		this.mClientOpts = opts;
-		// this.mClient = client;
 	}
 
 	static async connect(opts: ConnectOptions): Promise<Client> {
